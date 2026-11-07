@@ -76,6 +76,12 @@ node query.mjs "SELECT count(*) FROM aw_event"
 
 增量一次通常 5 到 10 秒。
 
+## 本地库兼容性
+
+ActivityWatch 0.14.1 升级时会把本地 SQLite 的索引合并成 `(bucket_id, timestamp)`，并把 journal 模式切到 WAL。同步脚本不依赖索引和 journal 模式，只读取字段和自增 id，所以不需要修改。
+
+脚本启动时会校验 `bucketmodel` 和 `eventmodel` 的必需字段，缺少字段会直接报错退出，避免版本升级后静默同步错误数据。本地库始终以只读方式打开，不会写入。
+
 ## 存储优化
 
 事件按时间顺序写入，物理相关性强，时间索引用 BRIN 而不是 btree。`aw_event` 只保留主键 btree 和 `ts` BRIN，索引从 70 MB 降到 21 MB，整库从 205 MB 降到 155 MB。
@@ -115,5 +121,6 @@ Unregister-ScheduledTask -TaskName "ActivityWatch Neon Backup" -Confirm:$false
 
 - 备份是只增不改的镜像。SQLite 里被删掉的事件不会从 Neon 删除；需要严格一致时先 `--full`。
 - 任务以交互式登录运行，注销或关机期间不会执行，恢复后由 StartWhenAvailable 补跑一次。
+- `--verify` 在 watcher 持续写入时可能出现 1 条差异，属于正常现象；需要精确校验可以先停掉 watcher 再运行。
 - Neon 免费套餐每项目 1 GB 存储，账户总计 20 GB。当前占用约 15%，按每月 18 MB 的增速还能用四年以上。
 - `.env` 里有数据库密码，已在 `.gitignore` 中排除，不要提交到仓库。
