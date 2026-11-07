@@ -92,6 +92,34 @@ function parseData(raw) {
   }
 }
 
+// ActivityWatch 升级可能调整索引或 journal 模式，但表名字段是稳定的。
+// 这里只校验脚本真正用到的列，结构不兼容时立刻报错，避免静默写错数据。
+const REQUIRED_COLUMNS = {
+  bucketmodel: ["key", "id", "created", "name", "type", "client", "hostname", "datastr"],
+  eventmodel: ["id", "bucket_id", "timestamp", "duration", "datastr"],
+};
+
+function assertLocalSchema(db) {
+  const missing = [];
+  for (const [table, required] of Object.entries(REQUIRED_COLUMNS)) {
+    const actual = new Set(
+      db
+        .prepare(`PRAGMA table_info('${table}')`)
+        .all()
+        .map((row) => row.name)
+    );
+    for (const col of required) {
+      if (!actual.has(col)) missing.push(`${table}.${col}`);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `本地 ActivityWatch 数据库结构不兼容，缺少字段: ${missing.join(", ")}。` +
+        "请确认 ActivityWatch 版本并更新 sync.mjs。"
+    );
+  }
+}
+
 async function withRetry(fn, label, attempts = 8) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
@@ -176,7 +204,7 @@ async function main() {
   rotateLog();
   const started = Date.now();
   const env = loadEnv();
-  const dbPath = env.AW_DB_PATH || DEFAULT_AW_DB;
+  const dbPath = process.env.AW_DB_PATH || env.AW_DB_PATH || DEFAULT_AW_DB;
 
   if (!fs.existsSync(dbPath)) {
     throw new Error(`找不到 ActivityWatch 数据库: ${dbPath}`);
@@ -187,11 +215,13 @@ async function main() {
     return;
   }
 
-  const sql = createClient(env.DATABASE_URL);
-  const stat = fs.statSync(dbPath);
-  const db = new DatabaseSync(dbPath, { readOnly: true });
-
+  let db;
   try {
+    const sql = createClient(env.DATABASE_URL);
+    const stat = fs.statSync(dbPath);
+    db = new DatabaseSync(dbPath, { readOnly: true });
+    db.exec("PRAGMA busy_timeout = 5000");
+    assertLocalSchema(db);
     if (VERIFY) {
       await verify(sql, db);
       return;
@@ -345,7 +375,7 @@ async function main() {
       true
     );
   } finally {
-    db.close();
+    if (db) db.close();
     releaseLock();
   }
 }
