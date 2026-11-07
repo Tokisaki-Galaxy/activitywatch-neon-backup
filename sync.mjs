@@ -341,7 +341,7 @@ async function main() {
 
     const secs = ((Date.now() - started) / 1000).toFixed(1);
     log(
-      `完成: 本次写入 ${synced} 条，远端合计 ${total} 条，同步水位 ${syncedTo}，本地最大 ID ${maxId}，耗时 ${secs}s`,
+      `完成: 本次写入 ${synced} 条，远端约 ${total} 条，同步水位 ${syncedTo}，本地最大 ID ${maxId}，耗时 ${secs}s`,
       true
     );
   } finally {
